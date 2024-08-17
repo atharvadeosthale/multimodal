@@ -88,14 +88,14 @@ num_classes = len(d.classes)
 train_targets = d_train.dataset.targets
 labels = d.classes
 
-num_epochs = 100
+num_epochs = 1
 
 for alphas in alpha_configurations:
     for model in (
         # FusionSideNetFcMobileNet(300, num_classes=num_classes, alphas=alphas, dropout_prob=.5, side_fc=1024),
         # FusionSideNetFcMobileNet(300, num_classes=num_classes, alphas=alphas, dropout_prob=.5, side_fc=512),
         # FusionSideNetFcResNet(300, num_classes=num_classes, alphas=alphas, dropout_prob=.5, side_fc=1024),
-        FusionSideNetFcVGG(300, num_classes=num_classes, alphas=alphas, dropout_prob=.5, side_fc=1024),
+        FusionSideNetFcVGG(num_classes=num_classes, alphas=alphas, dropout_prob=.5, side_fc=1024),
     ):
         learning_rate = .1
         optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=.9)

@@ -111,20 +111,23 @@ class TrainingPipeline:
 
         for _, (inputs, labels) in tqdm(enumerate(data)):
             self.optimizer.zero_grad()
-            if type(inputs) is list:
-                batch_size = inputs[0].size(0)
-                for i in range(len(inputs)):
-                    inputs[i] = inputs[i].to(device)
+            
+            if isinstance(inputs, (list, tuple)):
+                inputs = [input.to(device) if isinstance(input, torch.Tensor) else input for input in inputs]
+                batch_size = inputs[0].size(0) if isinstance(inputs[0], torch.Tensor) else len(inputs[0])
             else:
-                batch_size = inputs.size(0)
                 inputs = inputs.to(device)
+                batch_size = inputs.size(0)
+            
             labels = labels.to(device)
             result = self.model(inputs)
-            if type(result) is tuple:
-                outputs = result[0]
-                distances.append(result[1])
+            
+            if isinstance(result, tuple):
+                outputs, distance = result
+                distances.append(distance)
             else:
                 outputs = result
+            
             loss = self.criterion(outputs, labels)
             train_loss += loss.item() * batch_size
             loss.backward()
@@ -135,8 +138,7 @@ class TrainingPipeline:
         if self.scheduler is not None:
             self.scheduler.step()
 
-        return train_loss / len(data.dataset), train_acc / float(
-            len(data.dataset)), distances
+        return train_loss / len(data.dataset), train_acc / float(len(data.dataset)), distances
 
     def _eval(self, data):
         self.model.eval()

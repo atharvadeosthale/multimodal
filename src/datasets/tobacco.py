@@ -28,6 +28,7 @@ import torchvision.transforms.functional as TF
 from PIL import Image
 from torch.backends import cudnn
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
 
 filterwarnings("ignore")
 cudnn.deterministic = True
@@ -66,9 +67,21 @@ class TobaccoDataset(torch.utils.data.Dataset):
                         self.txts += [txt_path]
 
     def __getitem__(self, item):
-        img = TF.to_tensor(Image.open(self.imgs[item]))
-        # txt = torch.load(self.txts[item]).float()
-        return (img, self.txts[item]), self.targets[item]
+        img = Image.open(self.imgs[item])
+        img = img.convert('RGB')  # Ensure image is in RGB format
+        img = img.resize((224, 224))  # Resize image to a fixed size (e.g., 224x224)
+        img = TF.to_tensor(img)
+        img = TF.normalize(img, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        
+        with open(self.txts[item], 'r', encoding='utf-8', errors='ignore') as f:
+            txt = f.read()
+        
+        # Convert text to tensor and pad or truncate to a fixed length
+        max_length = 500  # Choose an appropriate maximum length
+        txt_tensor = torch.tensor([ord(c) for c in txt[:max_length]], dtype=torch.float32)
+        txt_tensor = F.pad(txt_tensor, (0, max_length - len(txt_tensor)))
+        
+        return (img, txt_tensor), self.targets[item]
 
     def __len__(self):
         return len(self.targets)
@@ -116,4 +129,3 @@ def split_tobacco(split_dir):
             os.mkdir(f'{split_dir}/test/txt/{l}')
         move(d.imgs[i], f'{split_dir}/test/img/{l}/.')
         move(d.txts[i], f'{split_dir}/test/txt/{l}/.')
-

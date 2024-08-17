@@ -54,12 +54,10 @@ class FusionSideNetFcMobileNet(nn.Module):
             param.requires_grad_(False)
         self.side_image = MobileNet(num_classes=num_classes, classify=False)
         self.image_output_dim = 1280
-        self.side_text = ShawnNet(embedding_dim,
-                                  num_filters=512,
-                                  num_classes=num_classes,
+        self.side_text = ShawnNet(num_filters=512,
                                   windows=[3, 4, 5],
-                                  custom_embedding=custom_embedding,
-                                  custom_num_embeddings=custom_num_embeddings,
+                                  num_classes=num_classes,
+                                  dropout_prob=dropout_prob,
                                   classify=False)
 
         self.fc1fus = nn.Linear(self.side_text.num_filters * len(self.side_text.windows), self.image_output_dim)
@@ -100,12 +98,10 @@ class FusionSideNetFcResNet(nn.Module):
             param.requires_grad_(False)
         self.side_image = ResNet(num_classes=num_classes, classify=False)
         self.image_output_dim = 2048
-        self.side_text = ShawnNet(embedding_dim,
-                                  num_filters=512,
-                                  num_classes=num_classes,
+        self.side_text = ShawnNet(num_filters=512,
                                   windows=[3, 4, 5],
-                                  custom_embedding=custom_embedding,
-                                  custom_num_embeddings=custom_num_embeddings,
+                                  num_classes=num_classes,
+                                  dropout_prob=dropout_prob,
                                   classify=False)
 
         self.fc1fus = nn.Linear(self.side_text.num_filters * len(self.side_text.windows), self.image_output_dim)
@@ -132,13 +128,11 @@ class FusionSideNetFcResNet(nn.Module):
 
 
 class FusionSideNetFcVGG(nn.Module):
-    def __init__(self, embedding_dim, num_classes, alphas=None,
-                 dropout_prob=.5, custom_embedding=False,
-                 custom_num_embeddings=0, side_fc=512):
+    def __init__(self, num_classes, alphas=None, dropout_prob=.5, side_fc=512):
         super(FusionSideNetFcVGG, self).__init__()
         self.name = f'fusion-vgg-{side_fc}'
         if alphas is None:
-            alphas = [.3, .3]
+            alphas = [.3, .3, .4]
         self.alphas = alphas
 
         self.base = VGG(num_classes=num_classes, classify=False)
@@ -146,12 +140,10 @@ class FusionSideNetFcVGG(nn.Module):
             param.requires_grad_(False)
         self.side_image = VGG(num_classes=num_classes, classify=False)
         self.image_output_dim = 4096
-        self.side_text = ShawnNet(embedding_dim,
-                                  num_filters=512,
-                                  num_classes=num_classes,
+        self.side_text = ShawnNet(num_filters=512,
                                   windows=[3, 4, 5],
-                                  custom_embedding=custom_embedding,
-                                  custom_num_embeddings=custom_num_embeddings,
+                                  num_classes=num_classes,
+                                  dropout_prob=dropout_prob,
                                   classify=False)
 
         self.fc1fus = nn.Linear(self.side_text.num_filters * len(self.side_text.windows), self.image_output_dim)
@@ -257,44 +249,31 @@ class MobileNet(nn.Module):
 
 
 class ShawnNet(nn.Module):
-    def __init__(self, embedding_dim, num_filters=512, windows=None,
-                 dropout_prob=.2, num_classes=10,
-                 custom_embedding=False, custom_num_embeddings=0, classify=True):
+    def __init__(self, num_filters, windows, num_classes, dropout_prob=0.5, classify=True):
         super(ShawnNet, self).__init__()
-        self.name = 'shawn'
-        self.embedding_dim = embedding_dim
         self.num_filters = num_filters
-        if windows is None:
-            self.windows = [3, 4, 5]
-        else:
-            self.windows = windows
-        self.dropout_prob = dropout_prob
+        self.windows = windows
         self.num_classes = num_classes
-        self.custom_embedding = custom_embedding
-
-        if self.custom_embedding:
-            self.embedding = nn.Embedding(custom_num_embeddings, self.embedding_dim)
-        self.convs = nn.ModuleList([
-            nn.Conv2d(1, self.num_filters, (i, self.embedding_dim)) for i in
-            self.windows
-        ])
+        self.dropout_prob = dropout_prob
         self.classify = classify
+
+        self.embedding = nn.Embedding(256, 300)  # ASCII embedding
+        self.convs = nn.ModuleList([
+            nn.Conv1d(300, num_filters, w) for w in windows
+        ])
+
+        self.dropout = nn.Dropout(dropout_prob)
         if self.classify:
-            self.classifier = nn.Sequential(nn.Dropout(self.dropout_prob),
-                                            nn.Linear(len(
-                                                self.windows) * self.num_filters,
-                                                      self.num_classes))
+            self.fc = nn.Linear(len(self.windows) * self.num_filters, self.num_classes)
 
     def forward(self, x):
-        if self.custom_embedding:
-            x = self.embedding(x)
-        x = x.unsqueeze(1)
-
-        x = [F.relu(conv(x)).squeeze(3) for conv in self.convs]
+        x = x.clamp(0, 255).long()  # Ensure input is in valid range
+        x = self.embedding(x)
+        x = x.permute(0, 2, 1)  # (batch, 300, seq_len)
+        x = [F.relu(conv(x)).squeeze(2) for conv in self.convs]
         x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
         x = torch.cat(x, 1)
-
+        x = self.dropout(x)
         if self.classify:
-            x = self.classifier(x)
-
+            x = self.fc(x)
         return x
